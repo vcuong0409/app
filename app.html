@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Chọn chức năng dự đoán Tài Xỉu</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f0f0f0; }
+    h2 { margin-bottom: 30px; }
+    button { padding: 15px 30px; margin: 10px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; background: #fff; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); transition: all 0.2s ease; }
+    button:hover { background: #e8e8e8; }
+    .section { display: none; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-top: 30px; }
+    .active { display: block; }
+    .tai { color: green; font-weight: bold; }
+    .xiu { color: red; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #eee; }
+  </style>
+</head>
+<body>
+
+<h2> CHỌN TÍNH NĂNG</h2>
+<button onclick="showSection('round')">🎲 Tài Xỉu từ mã phiên</button>
+<button onclick="showSection('md5')">🎰 Tài Xỉu từ mã MD5</button>
+<button onclick="window.close()">❌ Thoát</button>
+<p style="margin-top: 40px; color: gray;">© Bản quyền vcuong</p>
+
+<div id="round" class="section">
+  <h3>🧮 Dự đoán từ số phiên </h3>
+  <input type="number" id="roundNumber" placeholder="Nhập số phiên (VD: 20224253)">
+  <button onclick="predictByRound()">Dự đoán</button>
+  <div id="roundResult"></div>
+</div>
+
+<div id="md5" class="section">
+  <h3>🔐 Dự đoán từ mã MD5</h3>
+  <input type="text" id="md5Input" placeholder="Nhập mã MD5 (32 ký tự hex)">
+  <button onclick="predict()">Dự đoán từ MD5</button>
+  <input type="text" id="realResult" placeholder="Nhập kết quả thật (Tài/Xỉu)">
+  <button onclick="submitResult()">Lưu kết quả</button>
+  <div id="result" style="margin-top: 20px; font-size: 1.1em;"></div>
+
+  <h4>Lịch sử dự đoán</h4>
+  <table>
+    <thead>
+      <tr>
+        <th>Phiên</th>
+        <th>Dự đoán</th>
+        <th>Kết quả</th>
+        <th>Đúng/Sai</th>
+      </tr>
+    </thead>
+    <tbody id="history"></tbody>
+  </table>
+</div>
+
+<script>
+  let history = JSON.parse(localStorage.getItem("tx_history")) || [];
+  let pattern = [];
+
+  function showSection(id) {
+    document.getElementById("round").classList.remove("active");
+    document.getElementById("md5").classList.remove("active");
+    document.getElementById(id).classList.add("active");
+  }
+
+  function hexToBytes(hex) {
+    let bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes.push(parseInt(hex.substr(i, 2), 16));
+    }
+    return bytes;
+  }
+
+  function predict() {
+    const input = document.getElementById("md5Input").value.trim().toLowerCase();
+    const resultDiv = document.getElementById("result");
+
+    if (!/^[a-f0-9]{32}$/.test(input)) {
+      resultDiv.textContent = "❌ Mã MD5 không hợp lệ (32 ký tự hex)";
+      return;
+    }
+
+    const bytes = hexToBytes(input);
+    let weightedSum = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      weightedSum += bytes[i] * (i % 5 + 1);
+    }
+
+    const finalValue = weightedSum % 16 + 3;
+    let isTai = finalValue >= 11;
+    let prediction = isTai ? "Tài" : "Xỉu";
+
+    const distance = Math.abs(finalValue - 11);
+    const confidence = Math.min(100, 55 + distance * 9);
+
+    let trend = detectTrend();
+    if (trend) prediction = trend;
+
+    resultDiv.innerHTML = `🎯 Kết quả mô phỏng: ${finalValue} điểm<br>
+    👉 <span class="${isTai ? 'tai' : 'xiu'}">${prediction} - Tin cậy: ${confidence}%</span><br>
+    ${trend ? '📈 Dự đoán theo cầu: ' + trend : ''}`;
+
+    localStorage.setItem("tx_predict", prediction);
+  }
+
+  function detectTrend() {
+    if (pattern.length < 4) return null;
+    const len = pattern.length;
+    for (let n = 1; n <= 3; n++) {
+      let match = true;
+      for (let i = 0; i < n * 2; i++) {
+        if (pattern[len - 1 - i] !== pattern[len - 1 - (i + n)]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return pattern[len - n];
+    }
+    return null;
+  }
+
+  function submitResult() {
+    const real = document.getElementById("realResult").value.trim().toLowerCase();
+    if (real !== "tài" && real !== "xỉu") {
+      alert("Vui lòng nhập kết quả thật là 'Tài' hoặc 'Xỉu'");
+      return;
+    }
+
+    const predict = localStorage.getItem("tx_predict") || "";
+    const match = (real.toLowerCase() === predict.toLowerCase());
+
+    pattern.push(real.charAt(0).toUpperCase() + real.slice(1));
+    history.push({ prediction: predict, result: real, correct: match ? "✅" : "❌" });
+
+    localStorage.setItem("tx_history", JSON.stringify(history));
+    renderHistory();
+    document.getElementById("realResult").value = "";
+  }
+
+  function renderHistory() {
+    const tbody = document.getElementById("history");
+    tbody.innerHTML = "";
+    history.forEach((h, i) => {
+      tbody.innerHTML += `<tr>
+        <td>${i + 1}</td>
+        <td>${h.prediction}</td>
+        <td>${h.result}</td>
+        <td>${h.correct}</td>
+      </tr>`;
+    });
+  }
+
+  function predictByRound() {
+    const round = parseInt(document.getElementById("roundNumber").value.trim());
+    const resultDiv = document.getElementById("roundResult");
+    if (isNaN(round)) {
+      resultDiv.innerHTML = "❌ Vui lòng nhập số phiên hợp lệ";
+      return;
+    }
+    const digits = round.toString().split('').map(d => parseInt(d));
+    let total = digits.reduce((acc, n, i) => acc + n * (i % 3 + 1), 0);
+    const value = total % 16 + 3;
+    const isTai = value >= 11;
+    const prediction = isTai ? "Tài" : "Xỉu";
+    const confidence = Math.min(100, 55 + Math.abs(value - 11) * 9);
+    resultDiv.innerHTML = `🎰 Phiên ${round} dự đoán: <span class="${isTai ? 'tai' : 'xiu'}">${prediction} (${value} điểm) - Tin cậy: ${confidence}%</span>`;
+  }
+
+  renderHistory();
+</script>
+
+</body>
+</html>
